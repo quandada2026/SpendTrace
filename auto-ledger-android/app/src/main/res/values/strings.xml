@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">钱迹 Love</string>
+
+    <!-- 通知渠道 -->
+    <string name="channel_id">autoledger_channel</string>
+    <string name="channel_name">自动记账</string>
+    <string name="watch_notification_title">自动记账运行中</string>
+    <string name="watch_notification_text">正在监听截图，付款后截图即自动记账</string>
+
+    <!-- 记账结果通知 -->
+    <string name="entry_notification_title">已自动记账</string>
+
+    <!-- 权限引导文案 -->
+    <string name="perm_rationale">本应用需要「读取图片」权限以监听系统截图并自动识别金额；需要「通知」权限以在后台常驻与提示记账结果。</string>
+</resources>

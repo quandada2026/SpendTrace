@@ -1,0 +1,58 @@
+# ===== 构建缓存（机器相关、体积大，不入库）=====
+auto-ledger-android/app/build/
+auto-ledger-android/.gradle/
+auto-ledger-android/gradle-home/
+
+# ===== Android 本机 SDK 路径（机器相关）=====
+auto-ledger-android/local.properties
+
+# ===== Android 构建日志（排查遗留，非源码）=====
+auto-ledger-android/build_log*.txt
+
+# ===== Node 依赖（auto-ledger-core，体积大、可重装）=====
+auto-ledger-core/node_modules/
+
+# ===== 构建产物 APK（可用 build_fixed.ps1 重编，且已存于 v1.0 zip）=====
+auto-ledger-android/app-debug.apk
+
+# ===== 冗余备份 / 发布归档（已用 zip 单独交付）=====
+auto-ledger-android.bak-20260819/
+auto-ledger-android-v1.0.zip
+
+# ===== WorkBuddy 内部状态 =====
+.workbuddy/
+
+# ===== 早期排查遗留的散落诊断文件（非项目代码）=====
+defender_full.txt
+defender_status.txt
+diag.txt
+disk_diag.txt
+excl_result.txt
+extract_native.py
+extract_native_log.txt
+find_gradle.txt
+gh_struct.txt
+gradle_lib.txt
+gradle_struct.txt
+LoadTest.class
+LoadTest.java
+native_diag.txt
+proc_excl.txt
+rt_status.txt
+threat_diag.txt
+verify_gradle.txt
+verify_sdk.txt
+
+# ===== 构建日志 / 杀软排查遗留（auto-ledger-android 子目录）=====
+auto-ledger-android/build_run*.log
+auto-ledger-android/defender*.txt
+auto-ledger-android/cleanup_cache.py
+auto-ledger-android/disable_defender.ps1
+
+# ===== Gradle 发行包（由 wrapper 自动下载，不入库）=====
+auto-ledger-android/gradle-*-bin.zip
+
+# ===== 系统 / 编辑器 =====
+.DS_Store
+Thumbs.db
+*.tmp

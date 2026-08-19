@@ -1,0 +1,19 @@
+{
+  "name": "auto-ledger-core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "平台无关自动记账核心引擎 + 桌面零操作外壳（截图目录看守 + 本地查看/补录）",
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "demo": "tsx src/demo.ts",
+    "shell": "tsx src/shell/cli.ts"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "tesseract.js": "^5.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
