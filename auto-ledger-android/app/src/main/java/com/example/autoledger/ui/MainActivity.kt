@@ -4,14 +4,18 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -72,6 +77,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.autoledger.Categories
+import com.example.autoledger.ReviewDraft
+import com.example.autoledger.TradeType
 import com.example.autoledger.data.LedgerEntry
 import com.example.autoledger.ocr.OcrEngineProvider
 import com.example.autoledger.watcher.ScreenshotService
@@ -125,6 +132,10 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
     val dailyIncomeMap by vm.dailyIncomeMap.collectAsStateWithLifecycle()
     var showManual by remember { mutableStateOf(false) }
 
+    // 待复核草稿队列（Service 自动监听 + 手动上传都会入队），弹复核页等用户确认
+    val reviewQueue by ReviewBus.queue.collectAsStateWithLifecycle()
+    val currentReview = reviewQueue.firstOrNull()
+
     // 统计 Tab 三级钻取状态：概览 / 分类账目 / 日账目。
     // 二级页面全屏覆盖，左上角"返回"回到 Overview。
     var statsScreen by remember { mutableStateOf<StatsScreen>(StatsScreen.Overview) }
@@ -156,10 +167,10 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
         if (missing.isNotEmpty()) permLauncher.launch(missing.toTypedArray())
     }
 
-    // 手动上传
+    // 手动上传（支持一次多选多张截图；逐张分析后入复核队列，用户依次核对）
     val pickLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent(),
-    ) { uri: Uri? -> uri?.let { vm.processManualUri(it) } }
+        ActivityResultContracts.GetMultipleContents(),
+    ) { uris: List<Uri>? -> uris?.forEach { vm.processManualUri(it) } }
 
     val watchIntent = remember { Intent(context, ScreenshotService::class.java) }
 
@@ -250,6 +261,19 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
             vm.update(updated)
             editing = null
         }
+    }
+
+    // P0 复核闸门：有草稿必须先确认/丢弃，确认后才 commit 写库
+    currentReview?.let { draft ->
+        ReviewSheet(
+            draft = draft,
+            onConfirm = { edited -> vm.commitReview(edited) },
+            onDiscard = { vm.discardReview(draft.id) },
+            onManualEntry = {
+                vm.discardReview(draft.id)
+                showManual = true
+            },
+        )
     }
 }
 
@@ -865,4 +889,152 @@ private fun SettingsTab(context: Context) {
         }) { Text("保存设置") }
         Text("使用说明：开启「监听」后，系统截图一生成即自动记账；无双击截图功能的手机用右上角「上传」按钮手动选图兜底。", style = MaterialTheme.typography.bodySmall)
     }
+}
+
+/**
+ * P0 人工复核闸门：OCR 草稿必须在此确认（或丢弃）后才写库。
+ * 金额/商户/方向/时间/分类全部可编辑，候选金额与候选商户一键切换。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ReviewSheet(
+    draft: ReviewDraft,
+    onConfirm: (ReviewDraft) -> Unit,
+    onDiscard: () -> Unit,
+    onManualEntry: () -> Unit,
+) {
+    var amountText by remember(draft.id) {
+        mutableStateOf(draft.suggestMoney?.let { "%.2f".format(kotlin.math.abs(it)) } ?: "")
+    }
+    var merchant by remember(draft.id) { mutableStateOf(draft.suggestMerchant ?: "") }
+    var time by remember(draft.id) { mutableStateOf(draft.tradeTime ?: "") }
+    // -1=未知（识别没把握，强制人工选 支出/收入）
+    var direction by remember(draft.id) {
+        mutableStateOf(
+            when (draft.tradeType) {
+                TradeType.INCOME -> 1
+                TradeType.EXPENSE -> 0
+                // 金额带负号（财付通/微信支出表示法）默认支出，不强制人工；
+                // 否则（正金额或未知）强制人工选方向，绝不瞎猜。
+                TradeType.UNKNOWN -> if (draft.suggestMoney != null && draft.suggestMoney < 0) 0 else -1
+            },
+        )
+    }
+    var category by remember(draft.id) { mutableStateOf(draft.category) }
+
+    // 金额文本框存绝对值（方向由 direction 决定），故校验 abs>0 而非 >0；
+    // 负号是财付通/微信支出表示法，不能因负号判金额无效。
+    val amountValid = amountText.toDoubleOrNull()?.let { kotlin.math.abs(it) > 0.001 } == true
+    val dirValid = direction == 0 || direction == 1
+    val fmt: (Double) -> String = { "%.2f".format(it) }
+
+    AlertDialog(
+        onDismissRequest = onDiscard,
+        confirmButton = {
+            Button(
+                onClick = {
+                    val edited = draft.copy(
+                        suggestMoney = amountText.toDoubleOrNull(),
+                        suggestMerchant = merchant.ifBlank { null },
+                        tradeTime = time.ifBlank { null },
+                        tradeType = when (direction) {
+                            1 -> TradeType.INCOME
+                            0 -> TradeType.EXPENSE
+                            else -> TradeType.UNKNOWN
+                        },
+                        category = category,
+                    )
+                    onConfirm(edited)
+                },
+                enabled = amountValid && dirValid,
+            ) { Text("确认记账") }
+        },
+        dismissButton = { Button(onClick = onDiscard) { Text("丢弃") } },
+        title = { Text("核对账单") },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                draft.imagePath?.let { path ->
+                    val bmp = remember(path) { BitmapFactory.decodeFile(path) }
+                    bmp?.let {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = "原图",
+                            modifier = Modifier.fillMaxWidth().height(160.dp),
+                        )
+                    }
+                }
+                draft.warningMsg?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                if (!draft.success) {
+                    Text(
+                        "OCR 未能识别有效信息。可重新截图上传，或直接手动记账。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = onManualEntry) { Text("转手动记账") }
+                }
+                OutlinedTextField(
+                    amountText, { amountText = it },
+                    label = { Text(if (draft.suggestMoney == null) "金额（未识别·请手动输入）" else "金额（必填）") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (draft.candidateMoneyList.size > 1) {
+                    Text("候选金额（点选替换）", style = MaterialTheme.typography.labelMedium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        draft.candidateMoneyList.forEach { c ->
+                            FilterChip(
+                                selected = fmt(amountText.toDoubleOrNull() ?: -1.0) == fmt(kotlin.math.abs(c.value)),
+                                onClick = { amountText = fmt(kotlin.math.abs(c.value)) },
+                                label = { Text("¥" + fmt(kotlin.math.abs(c.value))) },
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    merchant, { merchant = it },
+                    label = { Text("商户（可选）") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (draft.merchantCandidates.size > 1) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        draft.merchantCandidates.forEach { name ->
+                            FilterChip(
+                                selected = merchant == name,
+                                onClick = { merchant = name },
+                                label = { Text(name) },
+                            )
+                        }
+                    }
+                }
+                Text("收支方向（必选）", style = MaterialTheme.typography.labelMedium)
+                TabRow(selectedTabIndex = if (direction == -1) 0 else direction) {
+                    Tab(selected = direction == 0, onClick = { direction = 0 }, text = { Text("支出") })
+                    Tab(selected = direction == 1, onClick = { direction = 1 }, text = { Text("收入") })
+                }
+                if (!dirValid) {
+                    Text("请选择支出或收入", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedTextField(
+                    time, { time = it },
+                    label = { Text("时间 YYYY-MM-DD HH:MM:SS（可选）") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("分类（可选，留空自动归类）", style = MaterialTheme.typography.labelMedium)
+                val catOptions = if (direction == 1) INCOME_OPTIONS else CATEGORY_OPTIONS
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    catOptions.forEach { c ->
+                        FilterChip(
+                            selected = category == c,
+                            onClick = { category = c },
+                            label = { Text(c) },
+                        )
+                    }
+                }
+            }
+        },
+    )
 }

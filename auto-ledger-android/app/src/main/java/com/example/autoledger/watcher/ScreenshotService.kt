@@ -15,6 +15,8 @@ import com.example.autoledger.R
 import com.example.autoledger.data.LedgerEntry
 import com.example.autoledger.ocr.OcrEngineProvider
 import com.example.autoledger.pipeline.LedgerPipeline
+import com.example.autoledger.ReviewDraft
+import com.example.autoledger.ui.ReviewBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,8 +49,10 @@ class ScreenshotService : Service() {
     private fun handleScreenshot(uri: Uri) {
         scope.launch {
             try {
-                val entry = pipeline.processUri(this@ScreenshotService, uri, "auto")
-                if (entry != null) notifyEntry(entry) else notifyIgnored()
+                // 只分析，不入库：草稿入 ReviewBus，由 UI 弹复核页让用户确认。
+                val draft = pipeline.analyzeUri(this@ScreenshotService, uri, "auto")
+                ReviewBus.offer(draft)
+                if (draft.success) notifyReview(draft) else notifyIgnored(draft.warningMsg)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -107,11 +111,32 @@ class ScreenshotService : Service() {
     }
 
     /** 空白/非支付截图：弹一次提示，不记任何账。 */
-    private fun notifyIgnored() {
+    private fun notifyIgnored(msg: String? = null) {
         val n = NotificationCompat.Builder(this, getString(R.string.channel_id))
             .setContentTitle("已忽略")
-            .setContentText("这张截图不是支付截图（空白或无支付信息），未记账")
+            .setContentText(msg ?: "这张截图不是支付截图（空白或无支付信息），未记账")
             .setSmallIcon(android.R.drawable.ic_menu_agenda)
+            .setAutoCancel(true)
+            .build()
+        notifManager.notify((System.currentTimeMillis() % 100000).toInt(), n)
+    }
+
+    /** 识别成功但需人工确认：通知提醒打开 App 复核。 */
+    private fun notifyReview(draft: ReviewDraft) {
+        val intent = Intent(this, com.example.autoledger.ui.MainActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        val pi = PendingIntent.getActivity(
+            this,
+            1,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val amt = draft.suggestMoney?.let { "¥%.2f".format(it) } ?: "待核对"
+        val n = NotificationCompat.Builder(this, getString(R.string.channel_id))
+            .setContentTitle("账单待核对 · $amt")
+            .setContentText("${draft.suggestMerchant ?: "未知商户"} · 点此确认或修正")
+            .setSmallIcon(android.R.drawable.ic_menu_agenda)
+            .setContentIntent(pi)
             .setAutoCancel(true)
             .build()
         notifManager.notify((System.currentTimeMillis() % 100000).toInt(), n)

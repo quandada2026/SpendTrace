@@ -16,15 +16,38 @@ data class OcrResult(
     val engine: String,
 )
 
-/** 结构化解析结果（与核心引擎 ParsedReceipt 对应）。 */
-data class ParsedReceipt(
-    val platform: String,
-    val amount: Double?,
-    val currency: String,
-    val time: String?,
-    val merchant: String?,
-    val rawText: String,
-    val needsReview: Boolean,
+/** 单条候选金额（OCR 容错：保留多候选，供复核页下拉切换）。 */
+data class AmountCandidate(
+    val value: Double,
+    val score: Int,
+    val sourceLine: String,
+)
+
+/** 收支方向推断结果；UNKNOWN 强制人工选择，绝不瞎猜。 */
+enum class TradeType { EXPENSE, INCOME, UNKNOWN }
+
+/**
+ * OCR 解析后的复核草稿。analyze() 产出，commit() 消费。
+ * 绝不自动入库——UI 必须让用户确认后才 commit。
+ */
+data class ReviewDraft(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val success: Boolean = true,
+    val rawText: String = "",
+    val confidence: Float = 0f,
+    /** 临时原图绝对路径（供复核页缩略图），commit/discard 后删除。 */
+    val imagePath: String? = null,
+    val candidateMoneyList: List<AmountCandidate> = emptyList(),
+    val suggestMoney: Double? = null,
+    val merchantCandidates: List<String> = emptyList(),
+    val suggestMerchant: String? = null,
+    val tradeTime: String? = null,
+    val tradeType: TradeType = TradeType.UNKNOWN,
+    val platform: String = "unknown",
+    /** 用户复核时可手动指定分类；为 null 时由自动归类决定。 */
+    val category: String? = null,
+    val warningMsg: String? = null,
+    val source: String = "manual",
 )
 
 /** 平台常量（与核心引擎保持一致）。 */

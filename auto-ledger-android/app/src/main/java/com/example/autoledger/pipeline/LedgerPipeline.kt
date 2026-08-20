@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.example.autoledger.ReviewDraft
+import com.example.autoledger.TradeType
 import com.example.autoledger.categorize.Categorizer
 import com.example.autoledger.data.LedgerDao
 import com.example.autoledger.data.LedgerEntry
@@ -11,63 +13,105 @@ import com.example.autoledger.ocr.OcrEngine
 import com.example.autoledger.parse.ScreenshotParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.time.LocalDateTime
 import java.util.UUID
 
 /**
- * 编排：Uri/Bitmap → OCR → 可信度校验 → 结构化解析 → 自动分类 → 入库。
- * 返回 null 表示「空白截图 / 非支付截图」，不产生任何账目（杜绝瞎编数据）。
- * 这是外壳（截图服务 / 手动上传）唯一需要调用的入口，与核心引擎
- * processScreenshot() 完全一致。
+ * 编排：Uri/Bitmap → OCR → 可信度校验 → 结构化解析 → 复核草稿。
+ *
+ * 拆成两个动作（P0 核心闸门）：
+ *  - analyzeUri(): 只 OCR + 解析 + 打分，产出 [ReviewDraft]，**绝不碰数据库**
+ *  - commit():      用户确认后才写库，写库后清理临时原图
+ *
+ * 失败 / 非支付截图 → success=false 的草稿，由 UI 提示，不崩溃、不入库。
  */
 class LedgerPipeline(
     private val dao: LedgerDao,
     private val engine: OcrEngine,
 ) {
 
-    suspend fun processUri(context: Context, uri: Uri, source: String = "auto"): LedgerEntry? =
-        processBitmap(loadBitmap(context, uri), source)
+    /** 分析：产生复核草稿，不写库。 */
+    suspend fun analyzeUri(context: Context, uri: Uri, source: String = "manual"): ReviewDraft =
+        withContext(Dispatchers.IO) {
+            try {
+                val bitmap = loadBitmap(context, uri)
+                val ocr = engine.recognize(bitmap)
+                val parsed = ScreenshotParser.parse(ocr)
+                val imgPath = saveTempBitmap(context, bitmap)
+                if (!ScreenshotValidator.isCrediblePayment(parsed.rawText, parsed.suggestMoney)) {
+                    imgPath?.let { File(it).delete() }
+                    parsed.copy(
+                        success = false,
+                        imagePath = null,
+                        source = source,
+                        warningMsg = "未识别到支付金额，请重新截图或手动记账",
+                    )
+                } else {
+                    parsed.copy(imagePath = imgPath, source = source, success = true)
+                }
+            } catch (e: Exception) {
+                ReviewDraft(
+                    success = false,
+                    warningMsg = "图片识别失败：${e.message ?: e.javaClass.simpleName}",
+                    source = source,
+                )
+            }
+        }
 
-    suspend fun processBitmap(bitmap: Bitmap, source: String = "manual"): LedgerEntry? {
-        val ocr = withContext(Dispatchers.IO) { engine.recognize(bitmap) }
-        val text = ocr.text ?: ""
-        // 先解析一次拿金额：兜底提取会把订单号/手机号/余额误当金额，必须用范围卡死
-        val parsed = ScreenshotParser.parse(ocr)
-        if (!ScreenshotValidator.isCrediblePayment(text, parsed.amount)) return null
-        val category = Categorizer.categorize(parsed.merchant, parsed.rawText)
-
+    /** 提交：用户确认后写库。draft 为 UI 修改后的副本（copy）。 */
+    suspend fun commit(draft: ReviewDraft): LedgerEntry? = withContext(Dispatchers.IO) {
+        if (!draft.success || draft.suggestMoney == null) return@withContext null
+        val direction = when (draft.tradeType) {
+            TradeType.INCOME -> 1
+            TradeType.EXPENSE -> 0
+            TradeType.UNKNOWN -> 0
+        }
+        val now = LocalDateTime.now()
+        val time = draft.tradeTime ?: "%04d-%02d-%02d %02d:%02d:%02d".format(
+            now.year, now.monthValue, now.dayOfMonth, now.hour, now.minute, now.second,
+        )
+        val category = draft.category ?: Categorizer.categorize(draft.suggestMerchant, draft.rawText)
         val entry = LedgerEntry(
             id = UUID.randomUUID().toString(),
-            platform = parsed.platform,
-            merchant = parsed.merchant,
-            amount = parsed.amount,
-            direction = 0,
+            platform = draft.platform,
+            merchant = draft.suggestMerchant,
+            amount = draft.suggestMoney,
+            direction = direction,
             category = category,
-            time = parsed.time,
-            currency = parsed.currency,
-            source = source,
-            needsReview = parsed.needsReview,
-            rawText = parsed.rawText,
-            createdAt = LocalDateTime.now().let {
-                "%04d-%02d-%02d %02d:%02d:%02d".format(
-                    it.year, it.monthValue, it.dayOfMonth, it.hour, it.minute, it.second,
-                )
-            },
+            time = time,
+            currency = "CNY",
+            source = draft.source,
+            needsReview = draft.tradeType == TradeType.UNKNOWN,
+            rawText = draft.rawText,
+            createdAt = "%04d-%02d-%02d %02d:%02d:%02d".format(
+                now.year, now.monthValue, now.dayOfMonth, now.hour, now.minute, now.second,
+            ),
         )
-        withContext(Dispatchers.IO) { dao.insert(entry) }
-        return entry
+        dao.insert(entry)
+        draft.imagePath?.let { File(it).delete() }
+        entry
     }
 
     private fun loadBitmap(context: Context, uri: Uri): Bitmap {
         context.contentResolver.openInputStream(uri)?.use { stream ->
             // 原图识别（不下采样）：支付截图里小号金额/商户文字，缩小后 OCR 容易丢字。
-            // 手动上传场景图片数量少，原图识别的性能开销可接受。
             val opts = BitmapFactory.Options().apply { inSampleSize = 1 }
             return BitmapFactory.decodeStream(stream, null, opts)
                 ?: throw IOException("无法解码图片: $uri")
         } ?: throw IOException("无法打开图片: $uri")
     }
+
+    /** 存临时原图（复核页缩略图用），commit/discard 后由调用方删除。 */
+    private fun saveTempBitmap(context: Context, bitmap: Bitmap): String? = runCatching {
+        val file = File(context.cacheDir, "ocr_tmp_${UUID.randomUUID()}.png")
+        FileOutputStream(file).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
+        }
+        file.absolutePath
+    }.getOrNull()
 }
 
 /**
@@ -95,7 +139,9 @@ object ScreenshotValidator {
     fun isCrediblePayment(text: String, amount: Double?): Boolean {
         if (text.isBlank()) return false
         if (amount == null) return false
-        if (amount < MIN_AMOUNT || amount > MAX_AMOUNT) return false
+        // 用绝对值判区间：退款/余额变动可能带负号（-56.70），不应被当异常拒掉
+        val a = kotlin.math.abs(amount)
+        if (a < MIN_AMOUNT || a > MAX_AMOUNT) return false
         return PAYMENT_SIGNAL.containsMatchIn(text)
     }
 }

@@ -12,6 +12,8 @@ import com.example.autoledger.data.LedgerDao
 import com.example.autoledger.data.LedgerEntry
 import com.example.autoledger.ocr.OcrEngineProvider
 import com.example.autoledger.pipeline.LedgerPipeline
+import com.example.autoledger.ReviewDraft
+import com.example.autoledger.ui.ReviewBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +29,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
 import java.util.UUID
+import java.io.File
 
 /** 统计周期。包含「今天」（用户要求 b 增加此维度）。 */
 enum class Period { TODAY, WEEK, MONTH, YEAR }
@@ -150,24 +153,34 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** 手动上传截图记账（无双击截图功能的手机兜底，对应桌面版手动上传）。 */
+    /** 手动上传截图：只做分析，草稿入 ReviewBus 等待用户复核，不直接入库。 */
     fun processManualUri(uri: Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             val pipeline = LedgerPipeline(dao, OcrEngineProvider.getEngine(getApplication()))
-            try {
-                val entry = pipeline.processUri(getApplication(), uri, "manual")
-                _processMessage.value = if (entry != null) {
-                    if (entry.amount != null) {
-                        "已记账：${entry.merchant ?: "未知商户"} ¥${"%.2f".format(entry.amount)}"
-                    } else {
-                        "已记账（待核对）：${entry.merchant ?: "未知商户"}，金额未识别，可在待核对中修正"
-                    }
-                } else {
-                    "已忽略：这张图片不是支付截图（空白或无支付信息），未记账"
-                }
-            } catch (e: Exception) {
-                _processMessage.value = "识别失败：${e.message ?: e.javaClass.simpleName}"
+            val draft = pipeline.analyzeUri(getApplication(), uri, "manual")
+            ReviewBus.offer(draft)
+        }
+    }
+
+    /** 用户确认复核草稿 → 写库。先出队（防重复点击/快速二次上传残留），再异步 commit。 */
+    fun commitReview(draft: ReviewDraft) {
+        ReviewBus.remove(draft.id)
+        viewModelScope.launch(Dispatchers.IO) {
+            val pipeline = LedgerPipeline(dao, OcrEngineProvider.getEngine(getApplication()))
+            val entry = pipeline.commit(draft)
+            _processMessage.value = if (entry != null) {
+                "已记账：${entry.merchant ?: "未知商户"} ¥%.2f".format(entry.amount)
+            } else {
+                "未能记账（金额缺失或识别失败）"
             }
+        }
+    }
+
+    /** 用户丢弃草稿：删临时图并从队列移除。 */
+    fun discardReview(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            ReviewBus.peek(id)?.imagePath?.let { File(it).delete() }
+            ReviewBus.remove(id)
         }
     }
 
