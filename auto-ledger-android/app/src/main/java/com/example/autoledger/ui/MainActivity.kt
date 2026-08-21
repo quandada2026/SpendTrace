@@ -116,6 +116,10 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
         if (missing.isNotEmpty()) permLauncher.launch(missing.toTypedArray())
     }
 
+    // 首次安装：弹「钱迹LOVE使用说明」引导页（SharedPreferences 记已看过，之后不再弹）
+    val prefs = remember { context.getSharedPreferences("autoledger", Context.MODE_PRIVATE) }
+    var showOnboarding by remember { mutableStateOf(!prefs.getBoolean("onboarding_done", false)) }
+
     // 手动上传（支持一次多选多张截图；逐张分析后入复核队列，用户依次核对）
     var pendingUploadDate by remember { mutableStateOf<LocalDate?>(null) }
     val pickLauncher = rememberLauncherForActivityResult(
@@ -184,7 +188,7 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
                 )
                 1 -> EntryList(entries, onEdit = { editing = it }, onDelete = { vm.delete(it) })
                 2 -> EntryList(review, onEdit = { editing = it }, onDelete = { vm.delete(it) }, highlightReview = true)
-                3 -> SettingsTab(context)
+                3 -> SettingsTab(context, onShowOnboarding = { showOnboarding = true })
             }
         }
     }
@@ -224,6 +228,16 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
                 vm.discardReview(draft.id)
                 manualDate = null
                 showManual = true
+            },
+        )
+    }
+
+    // 首次安装引导页（全屏覆盖，确认/跳过即记录已看过）
+    if (showOnboarding) {
+        OnboardingScreen(
+            onFinish = {
+                prefs.edit().putBoolean("onboarding_done", true).apply()
+                showOnboarding = false
             },
         )
     }

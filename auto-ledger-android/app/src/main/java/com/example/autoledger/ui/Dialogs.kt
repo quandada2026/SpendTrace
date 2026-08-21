@@ -202,7 +202,7 @@ internal fun EditDialog(entry: LedgerEntry, onDismiss: () -> Unit, onDelete: () 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SettingsTab(context: Context) {
+internal fun SettingsTab(context: Context, onShowOnboarding: () -> Unit = {}) {
     val prefs = remember { context.getSharedPreferences("autoledger", Context.MODE_PRIVATE) }
     var mode by remember { mutableStateOf(prefs.getString("ocr_mode", "local") ?: "local") }
     var endpoint by remember { mutableStateOf(prefs.getString("cloud_endpoint", "") ?: "") }
@@ -227,5 +227,8 @@ internal fun SettingsTab(context: Context) {
             }
         }) { Text("保存设置") }
         Text("使用说明：开启「监听」后，系统截图一生成即自动记账；无双击截图功能的手机用右上角「上传」按钮手动选图兜底。", style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = onShowOnboarding, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text("查看使用说明", color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
