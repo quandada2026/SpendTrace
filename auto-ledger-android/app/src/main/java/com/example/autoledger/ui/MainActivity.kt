@@ -90,13 +90,6 @@ import java.time.YearMonth
 import java.time.ZoneId
 import kotlin.math.max
 
-/** 模块标题随机配色板（排除红/黄）。 */
-private val TITLE_PALETTE = listOf(
-    Color(0xFF1565C0), Color(0xFF2E7D32), Color(0xFF6A1B9A), Color(0xFF00838F),
-    Color(0xFF283593), Color(0xFFE65100), Color(0xFF4E342E), Color(0xFFAD1457),
-    Color(0xFF00695C), Color(0xFF4527A0),
-)
-
 private val CATEGORY_OPTIONS = listOf(
     Categories.餐饮, Categories.购物, Categories.交通, Categories.休闲,
     Categories.医疗, Categories.学习, Categories.人情支出, Categories.住房, Categories.其他,
@@ -110,7 +103,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            MaterialTheme(colorScheme = IndigoMagazineColors, typography = IndigoMagazineTypography) {
                 MainScreen()
             }
         }
@@ -363,8 +356,7 @@ private fun OverviewStats(
     val selectedMonth by vm.selectedMonth.collectAsStateWithLifecycle()
     val dailyNet by vm.dailyNetForMonth(selectedMonth).collectAsStateWithLifecycle(initialValue = emptyMap())
 
-    // 模块标题随机配色（每次进入重组固定一组，排除红/黄）
-    val titleColors = remember { TITLE_PALETTE.shuffled() }
+    // 模块标题统一靛蓝（杂志主题），不再随机取色
     val monthLabel = "${selectedMonth.year}年${selectedMonth.monthValue}月"
 
     LazyColumn(Modifier.fillMaxSize()) {
@@ -372,7 +364,7 @@ private fun OverviewStats(
         item {
             Card(Modifier.fillMaxWidth().padding(8.dp)) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("${monthLabel}收支", style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp), color = titleColors[0])
+                    Text("${monthLabel}收支", style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp), color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("支出", style = MaterialTheme.typography.bodyMedium)
@@ -418,7 +410,7 @@ private fun OverviewStats(
                     Text(
                         "${monthLabel}支出分类",
                         style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
-                        color = titleColors[2],
+                        color = MaterialTheme.colorScheme.primary,
                     )
                     Text(
                         "点击分类查看明细（分类 → 账目列表 → 单条账目）",
@@ -490,7 +482,7 @@ private fun CalendarHeatmap(
     val green = Color(0xFF43A047)
     val red = Color(0xFFE53935)
     val neutral = MaterialTheme.colorScheme.onSurfaceVariant
-    val titleColor = remember { TITLE_PALETTE.shuffled() }.let { it[1] }
+    val titleColor = MaterialTheme.colorScheme.primary
 
     Card(Modifier.fillMaxWidth().padding(8.dp)) {
         Column(Modifier.padding(12.dp)) {
