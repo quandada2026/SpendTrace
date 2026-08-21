@@ -4,8 +4,9 @@
 付款后双击/电源键截图 → 系统截图一落盘 → 自动 OCR → 解析 → 分类 → 入库 → 通知。
 这是手机上唯一能做到「付完款→截图→全程不碰 App」的路径（iOS 第三方 App 基本不可行）。
 
-> ⚠️ 本项目在交付环境（无 Android SDK）**未做编译验证**，需你在 Android Studio 中同步构建。
-> 代码已尽量贴近可编译形态，并标注了所有需按本机环境确认的点（见「版本与构建」）。
+> ✅ **可复现构建已验证**：本目录附带完整 Gradle Wrapper（`gradlew` / `gradlew.bat` + `gradle-wrapper.jar`，distribution 走腾讯镜像），
+> 本机实测 `./gradlew assembleDebug` 成功产出 APK（`app/build/outputs/apk/debug/app-debug.apk`）。
+> Android Studio 打开本目录即可同步构建，无需额外配置。
 
 ---
 
@@ -21,7 +22,7 @@
 ```
 auto-ledger-android/
 ├── settings.gradle.kts / build.gradle.kts / gradle.properties
-├── gradle/wrapper/gradle-wrapper.properties
+├── gradlew / gradlew.bat / gradle/wrapper/（gradle-wrapper.jar + properties，已带 wrapper，distribution 走腾讯镜像）
 └── app/src/main/
     ├── AndroidManifest.xml
     ├── java/com/example/autoledger/
@@ -53,14 +54,15 @@ auto-ledger-android/
 | `src/index.ts processScreenshot` | `pipeline/LedgerPipeline.kt` | 编排入口一致 |
 | `src/store/json.ts` | `data/Room` | 持久化等价 |
 
-## 运行步骤
-1. 用 **Android Studio（Hedgehog / Iguana 或更新）** 打开本目录。
-2. 首次打开若提示「Gradle wrapper 未找到」，选择让 IDE 生成 / 使用默认 wrapper（已附带 `gradle-wrapper.properties`）。
-3. 同步依赖（会自动下载 Compose BOM、Room、ML Kit、Coroutines）。需要联网。
-4. 连接安卓手机（USB 调试）或启动模拟器（建议 API 30+ 以验证截图监听）。
-5. `Run 'app'`。
-6.  App 内点「开启监听」→ 系统授予「读取图片 / 通知」权限 → 到微信/支付宝付一笔款 → 截图 → 通知栏弹出「已自动记账」，App 列表出现该笔。
-7.  无双击截图功能的手机：用 App 右上角「上传」按钮手动选图兜底。
+## 运行步骤（构建）
+1. **Android Studio 方式**：用 Android Studio（Hedgehog / Iguana 或更新）打开本目录 → 自动识别 Gradle Wrapper 并同步依赖（首次自动下载 Gradle 8.9，走腾讯镜像，需联网）→ `Run 'app'`。
+2. **命令行方式**（可选）：
+   - Windows：`gradlew.bat assembleDebug`
+   - macOS / Linux：`./gradlew assembleDebug`
+   - 产物在 `app/build/outputs/apk/debug/app-debug.apk`。需要本机已装 JDK 17+ 与 Android SDK（`local.properties` 的 `sdk.dir` 或环境变量 `ANDROID_HOME`）。
+3. 连接安卓手机（USB 调试）或启动模拟器（建议 API 30+ 以验证截图监听）。
+4. App 内点「开启监听」→ 系统授予「读取图片 / 通知」权限 → 到微信/支付宝付一笔款 → 截图 → 通知栏弹出「已自动记账」，App 列表出现该笔。
+5. 无双击截图功能的手机：用 App 右上角「上传」按钮手动选图兜底。
 
 ## 权限说明
 - `READ_MEDIA_IMAGES`（API33+）/ `READ_EXTERNAL_STORAGE`（≤32）：监听并读取截图，**必须**。
