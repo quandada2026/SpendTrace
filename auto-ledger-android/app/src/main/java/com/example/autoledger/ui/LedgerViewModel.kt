@@ -73,6 +73,17 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     val incomeTotals: StateFlow<List<CategoryTotal>> = categoryFlows(1)
     val incomeSum: StateFlow<Double?> = sumFlows(1)
 
+    /** 全年聚合（跟随 selectedMonth 的年份）：自然年 1/1 ~ 次年 1/1，用于收支卡「全年」列。 */
+    private fun yearSumFlows(direction: Int): StateFlow<Double?> =
+        selectedMonth.flatMapLatest { ym ->
+            val s = "%04d-01-01".format(ym.year)
+            val e = "%04d-01-01".format(ym.year + 1)
+            dao.rangeTotal(s, e, direction)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val yearExpenseSum: StateFlow<Double?> = yearSumFlows(0)
+    val yearIncomeSum: StateFlow<Double?> = yearSumFlows(1)
+
     /**
      * 本月每日支出合计（与 period 解耦，专门用于 c/日历染色）。
      * 月初切日靠 app 重启刷新；用户在月初前夜 23:59 跨入新月份不影响日常使用。

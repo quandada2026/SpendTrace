@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -358,6 +359,12 @@ private fun OverviewStats(
     val expense = expenseSum ?: 0.0
     val income = incomeSum ?: 0.0
     val balance = income - expense
+    // 全年聚合（跟随所选月份所在年份）
+    val yearExpenseSum by vm.yearExpenseSum.collectAsStateWithLifecycle()
+    val yearIncomeSum by vm.yearIncomeSum.collectAsStateWithLifecycle()
+    val yExpense = yearExpenseSum ?: 0.0
+    val yIncome = yearIncomeSum ?: 0.0
+    val yBalance = yIncome - yExpense
 
     // 整页统一日期源：日历所选月份（默认本月），翻月时汇总/分类/热力全部联动
     val selectedMonth by vm.selectedMonth.collectAsStateWithLifecycle()
@@ -367,30 +374,50 @@ private fun OverviewStats(
     val monthLabel = "${selectedMonth.year}年${selectedMonth.monthValue}月"
 
     LazyColumn(Modifier.fillMaxSize()) {
-        // a + b：所选月份收支总览
+        // a + b：所选月份收支总览（本月 + 全年 双列）
         item {
             Card(Modifier.fillMaxWidth().padding(8.dp)) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("${monthLabel}收支", style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp), color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(12.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("支出", style = MaterialTheme.typography.bodyMedium)
-                        Text("¥%.2f".format(expense), style = MaterialTheme.typography.titleMedium, color = Color(0xFFE53935))
+                    Text("${selectedMonth.year}年收支", style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp), color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(8.dp))
+                    // 表头
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("", Modifier.weight(0.8f))
+                        Text("本月·${selectedMonth.monthValue}月", Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("全年", Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("收入", style = MaterialTheme.typography.bodyMedium)
-                        Text("¥%.2f".format(income), style = MaterialTheme.typography.titleMedium, color = Color(0xFF43A047))
+                    Spacer(Modifier.height(4.dp))
+                    // 支出
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("支出", Modifier.weight(0.8f), style = MaterialTheme.typography.bodyMedium)
+                        Text("¥%.2f".format(expense), Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.titleMedium, color = Color(0xFFE53935))
+                        Text("¥%.2f".format(yExpense), Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.titleMedium, color = Color(0xFFE53935))
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    // 收入
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("收入", Modifier.weight(0.8f), style = MaterialTheme.typography.bodyMedium)
+                        Text("¥%.2f".format(income), Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.titleMedium, color = Color(0xFF43A047))
+                        Text("¥%.2f".format(yIncome), Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.titleMedium, color = Color(0xFF43A047))
+                    }
+                    // 分隔线
+                    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp).height(0.5.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                    // 结余
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("结余", Modifier.weight(0.8f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            "结余",
-                            style = MaterialTheme.typography.bodyMedium,
+                            "¥%.2f".format(balance),
+                            Modifier.weight(1f),
+                            textAlign = TextAlign.End,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (balance >= 0) Color(0xFF43A047) else Color(0xFFE53935),
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "¥%.2f".format(balance),
+                            "¥%.2f".format(yBalance),
+                            Modifier.weight(1f),
+                            textAlign = TextAlign.End,
                             style = MaterialTheme.typography.titleMedium,
-                            color = if (balance >= 0) Color(0xFF43A047) else Color(0xFFE53935),
+                            color = if (yBalance >= 0) Color(0xFF43A047) else Color(0xFFE53935),
                             fontWeight = FontWeight.Bold,
                         )
                     }
