@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">钱迹LOVE使用说明</string>
+    <string name="app_name">钱迹 Love</string>
 
     <!-- 通知渠道 -->
     <string name="channel_id">autoledger_channel</string>
