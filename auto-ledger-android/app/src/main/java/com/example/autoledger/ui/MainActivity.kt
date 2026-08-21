@@ -61,8 +61,11 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -604,19 +607,26 @@ private fun DayEntriesScreen(
     onAdd: (LocalDate) -> Unit,
 ) {
     val density = LocalDensity.current
-    val backThresholdPx = with(density) { 80.dp.toPx() }
-    var accumulatedDx by remember { mutableStateOf(0f) }
+    val backThresholdPx = with(density) { 40.dp.toPx() }
+    // 屏幕左 100dp 边缘区（绕开 Android 10+ 系统级边缘返回手势的前 ~20dp）
+    val edgeZonePx = with(density) { 100.dp.toPx() }
     Column(
         Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragEnd = {
-                        if (accumulatedDx > backThresholdPx) onBack()
-                        accumulatedDx = 0f
-                    },
-                    onDragCancel = { accumulatedDx = 0f },
-                ) { _, dragAmount -> accumulatedDx += dragAmount }
+                awaitEachGesture {
+                    // 仅在屏幕左 edgeZonePx 内的触摸启动检测（右侧不会误触）
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (down.position.x > edgeZonePx) return@awaitEachGesture
+                    var totalDx = 0f
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        totalDx += change.position.x - change.previousPosition.x
+                    }
+                    if (totalDx > backThresholdPx) onBack()
+                }
             },
     ) {
         Row(
