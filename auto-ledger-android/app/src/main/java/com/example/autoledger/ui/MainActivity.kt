@@ -209,10 +209,10 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
     ) { inner ->
         Column(Modifier.fillMaxSize().padding(inner)) {
             TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0; statsScreen = StatsScreen.Overview }, text = { Text("统计") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("账本 ${entries.size}") })
-                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("待核对 ${review.size}") })
-                Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("设置") })
+                Tab(selected = tab == 0, onClick = { tab = 0; statsScreen = StatsScreen.Overview }, text = { Text("统计", maxLines = 1, softWrap = false) })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("账本 ${entries.size}", maxLines = 1, softWrap = false) })
+                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("待核对 ${review.size}", maxLines = 1, softWrap = false) })
+                Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("设置", maxLines = 1, softWrap = false) })
             }
             when (tab) {
                 0 -> StatsTab(
