@@ -129,11 +129,11 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     fun setPeriod(p: Period) { period.value = p }
 
     /** 手动记账：不经过 OCR，直接入库（source=manual）。 */
-    fun insertManual(amount: Double, category: String, direction: Int, merchant: String?, note: String?) {
+    fun insertManual(amount: Double, category: String, direction: Int, merchant: String?, note: String?, date: LocalDate = LocalDate.now()) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = LocalDateTime.now()
             val time = "%04d-%02d-%02d %02d:%02d:%02d".format(
-                now.year, now.monthValue, now.dayOfMonth, now.hour, now.minute, now.second,
+                date.year, date.monthValue, date.dayOfMonth, now.hour, now.minute, now.second,
             )
             val entry = LedgerEntry(
                 id = UUID.randomUUID().toString(),

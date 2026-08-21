@@ -45,6 +45,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -82,8 +85,10 @@ import com.example.autoledger.TradeType
 import com.example.autoledger.data.LedgerEntry
 import com.example.autoledger.ocr.OcrEngineProvider
 import com.example.autoledger.watcher.ScreenshotService
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import kotlin.math.max
 
 /** 模块标题随机配色板（排除红/黄）。 */
@@ -131,6 +136,7 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
     val dailyExpenseMap by vm.dailyExpenseMap.collectAsStateWithLifecycle()
     val dailyIncomeMap by vm.dailyIncomeMap.collectAsStateWithLifecycle()
     var showManual by remember { mutableStateOf(false) }
+    var manualDate by remember { mutableStateOf<LocalDate?>(null) }
 
     // 待复核草稿队列（Service 自动监听 + 手动上传都会入队），弹复核页等用户确认
     val reviewQueue by ReviewBus.queue.collectAsStateWithLifecycle()
@@ -201,7 +207,7 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
         },
         floatingActionButton = {
             if (showFab) {
-                FloatingActionButton(onClick = { showManual = true }) {
+                FloatingActionButton(onClick = { manualDate = null; showManual = true }) {
                     Icon(Icons.Filled.Add, contentDescription = "手动记账")
                 }
             }
@@ -231,6 +237,7 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
                     onBack = { statsScreen = StatsScreen.Overview },
                     onEdit = { editing = it },
                     onDelete = { vm.delete(it) },
+                    onAdd = { d -> manualDate = d; showManual = true },
                 )
                 1 -> EntryList(entries, onEdit = { editing = it }, onDelete = { vm.delete(it) })
                 2 -> EntryList(review, onEdit = { editing = it }, onDelete = { vm.delete(it) }, highlightReview = true)
@@ -241,9 +248,10 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
 
     if (showManual) {
         ManualEntryDialog(
+            initialDate = manualDate ?: LocalDate.now(),
             onDismiss = { showManual = false },
-            onSave = { amount, category, direction, merchant, note ->
-                vm.insertManual(amount, category, direction, merchant, note)
+            onSave = { amount, category, direction, merchant, note, date ->
+                vm.insertManual(amount, category, direction, merchant, note, date)
                 showManual = false
             },
         )
@@ -271,6 +279,7 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
             onDiscard = { vm.discardReview(draft.id) },
             onManualEntry = {
                 vm.discardReview(draft.id)
+                manualDate = null
                 showManual = true
             },
         )
@@ -302,6 +311,7 @@ private fun StatsTab(
     onBack: () -> Unit,
     onEdit: (LedgerEntry) -> Unit,
     onDelete: (LedgerEntry) -> Unit,
+    onAdd: (LocalDate) -> Unit,
 ) {
     when (screen) {
         StatsScreen.Overview -> OverviewStats(
@@ -335,6 +345,7 @@ private fun StatsTab(
                 onBack = onBack,
                 onEdit = onEdit,
                 onDelete = onDelete,
+                onAdd = onAdd,
             )
         }
     }
@@ -609,6 +620,7 @@ private fun DayEntriesScreen(
     onBack: () -> Unit,
     onEdit: (LedgerEntry) -> Unit,
     onDelete: (LedgerEntry) -> Unit,
+    onAdd: (LocalDate) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -622,7 +634,16 @@ private fun DayEntriesScreen(
                 Text(date.toString(), style = MaterialTheme.typography.titleMedium)
                 Text("${list.size} 笔 · 支出 ¥%.2f".format(list.filter { it.direction == 0 }.sumOf { it.amount ?: 0.0 }), style = MaterialTheme.typography.bodySmall)
             }
+            IconButton(onClick = { onAdd(date) }) {
+                Icon(Icons.Filled.Add, contentDescription = "补记")
+            }
         }
+        Text(
+            "点击任意一笔可修正或删除",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
+        )
         EntryList(list = list, onEdit = onEdit, onDelete = onDelete)
     }
 }
@@ -745,14 +766,36 @@ private fun EntryList(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ManualEntryDialog(
+    initialDate: LocalDate = LocalDate.now(),
     onDismiss: () -> Unit,
-    onSave: (amount: Double, category: String, direction: Int, merchant: String?, note: String?) -> Unit,
+    onSave: (amount: Double, category: String, direction: Int, merchant: String?, note: String?, date: LocalDate) -> Unit,
 ) {
     var direction by remember { mutableStateOf(0) } // 0=支出 1=收入
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf<String?>(null) }
     var merchant by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+    var selectedDate by remember { mutableStateOf(initialDate) }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+    )
+    var showDatePicker by remember { mutableStateOf(false) }
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                Button(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        selectedDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
+                    }
+                    showDatePicker = false
+                }) { Text("确定") }
+            },
+            dismissButton = { Button(onClick = { showDatePicker = false }) { Text("取消") } },
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -762,7 +805,7 @@ private fun ManualEntryDialog(
                     val amt = amount.toDoubleOrNull()
                     val cat = category
                     if (amt != null && amt > 0 && cat != null) {
-                        onSave(amt, cat, direction, merchant, note)
+                        onSave(amt, cat, direction, merchant, note, selectedDate)
                     }
                 },
                 enabled = amount.toDoubleOrNull()?.let { it > 0 } == true && category != null,
@@ -780,6 +823,15 @@ private fun ManualEntryDialog(
                     amount, { amount = it }, label = { Text("金额（必填）") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
+                )
+                // 记账日期（可改，用于给历史某天补记）
+                OutlinedTextField(
+                    value = selectedDate.toString(),
+                    onValueChange = { },
+                    readOnly = true,
+                    label = { Text("记账日期") },
+                    trailingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true },
                 )
                 Text("分类（必填）", style = MaterialTheme.typography.labelMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
