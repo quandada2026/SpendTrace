@@ -13,9 +13,9 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        // 版本策略：核心记账闭环完整但 P1 草稿持久化 / P2 通知监听 / 单测未完成，
-        // 定为 0.9.0（0.9 = 可日常用未到发布线），补齐后升 1.0.0。versionCode 保持 1 可覆盖安装。
-        versionName = "0.9.0"
+        // 版本策略：P1 复核草稿持久化已落地（数据安全闭环），正式升 1.0.0。
+        // 后续 P2 付款通知自动识别 / 单测等按 minor 递增（1.1.0 ...）。versionCode 保持 1 可覆盖安装。
+        versionName = "1.0.0"
     }
 
     buildTypes {
