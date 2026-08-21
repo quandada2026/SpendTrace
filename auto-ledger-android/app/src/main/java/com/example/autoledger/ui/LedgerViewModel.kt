@@ -32,8 +32,7 @@ import java.time.YearMonth
 import java.util.UUID
 import java.io.File
 
-/** 统计周期。包含「今天」（用户要求 b 增加此维度）。 */
-enum class Period { TODAY, WEEK, MONTH, YEAR }
+/** 统计周期枚举已弃用：整页统一按 selectedMonth（日历所选月份）统计。 */
 
 /**
  * 向 UI 暴露账本流与操作（手动记账、修正、删除、周期统计）。
@@ -48,47 +47,24 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     val needsReview: StateFlow<List<LedgerEntry>> = dao.observeNeedsReview()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 当前统计周期（周/月/年）。 */
-    private val period = MutableStateFlow(Period.MONTH)
-    val periodState: StateFlow<Period> = period.asStateFlow()
+    /** 当前统计月份（与日历翻月联动，整页汇总/分类/热力统一使用）。 */
+    val selectedMonth = MutableStateFlow(YearMonth.now())
 
-    /** 计算 [start, end) 的日期范围字符串（time 列 'YYYY-MM-DD HH:MM:SS' 字典序即时间序）。 */
-    private fun range(p: Period): Pair<String, String> {
-        val now = LocalDate.now()
-        return when (p) {
-            // 仅今天：当天 00:00 ~ 次日 00:00
-            Period.TODAY -> now.toString() to now.plusDays(1).toString()
-            // 周一 ~ 周日（ISO 周，国内习惯）
-            Period.WEEK -> {
-                val monday = now.with(DayOfWeek.MONDAY)
-                monday.toString() to monday.plusDays(7).toString()
-            }
-            Period.MONTH -> {
-                val first = LocalDate.of(now.year, now.month, 1)
-                first.toString() to first.plusMonths(1).toString()
-            }
-            Period.YEAR -> {
-                val first = LocalDate.of(now.year, 1, 1)
-                first.toString() to first.plusYears(1).toString()
-            }
-        }
-    }
-
-    /** 当前自然月起止（与 period 解耦，专门用于 c/日历每日统计）。 */
+    /** 当前自然月起止（与 selectedMonth 解耦，专门用于 c/日历每日统计）。 */
     private fun thisMonthRange(): Pair<String, String> {
         val ym = YearMonth.now()
         return ym.atDay(1).toString() to ym.atEndOfMonth().plusDays(1).toString()
     }
 
     private fun categoryFlows(direction: Int): StateFlow<List<CategoryTotal>> =
-        period.flatMapLatest { p ->
-            val (s, e) = range(p)
+        selectedMonth.flatMapLatest { ym ->
+            val (s, e) = monthRange(ym)
             dao.rangeCategoryTotals(s, e, direction)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private fun sumFlows(direction: Int): StateFlow<Double?> =
-        period.flatMapLatest { p ->
-            val (s, e) = range(p)
+        selectedMonth.flatMapLatest { ym ->
+            val (s, e) = monthRange(ym)
             dao.rangeTotal(s, e, direction)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -143,18 +119,16 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private fun monthRange(ym: YearMonth): Pair<String, String> =
         ym.atDay(1).toString() to ym.atEndOfMonth().plusDays(1).toString()
 
-    /** d 三级钻取：当前 period 内该分类账目列表。 */
+    /** d 三级钻取：当前所统计月份内该分类账目列表。 */
     fun entriesByCategory(category: String, direction: Int): Flow<List<LedgerEntry>> =
-        period.flatMapLatest { p ->
-            val (s, e) = range(p)
+        selectedMonth.flatMapLatest { ym ->
+            val (s, e) = monthRange(ym)
             dao.observeByCategoryInRange(s, e, category, direction)
         }
 
     /** c 三级钻取：日历某日的所有账目（不限方向，跟随该日实际记录）。 */
     fun entriesOnDay(date: LocalDate): Flow<List<LedgerEntry>> =
         dao.observeByDay(date.toString())
-
-    fun setPeriod(p: Period) { period.value = p }
 
     /** 手动记账：不经过 OCR，直接入库（source=manual）。 */
     fun insertManual(amount: Double, category: String, direction: Int, merchant: String?, note: String?, date: LocalDate = LocalDate.now()) {

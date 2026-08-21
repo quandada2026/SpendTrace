@@ -128,7 +128,6 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
 
     val entries by vm.entries.collectAsStateWithLifecycle()
     val review by vm.needsReview.collectAsStateWithLifecycle()
-    val period by vm.periodState.collectAsStateWithLifecycle()
     val expenseSum by vm.expenseSum.collectAsStateWithLifecycle()
     val expenseTotals by vm.expenseTotals.collectAsStateWithLifecycle()
     val incomeSum by vm.incomeSum.collectAsStateWithLifecycle()
@@ -226,13 +225,11 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
             when (tab) {
                 0 -> StatsTab(
                     screen = statsScreen,
-                    period = period,
                     expenseSum = expenseSum,
                     incomeSum = incomeSum,
                     expenseTotals = expenseTotals,
                     incomeTotals = incomeTotals,
                     vm = vm,
-                    onPeriodChange = vm::setPeriod,
                     onCategoryClick = { statsScreen = StatsScreen.CategoryEntries(it) },
                     onDayClick = { statsScreen = StatsScreen.DayEntries(it) },
                     onBack = { statsScreen = StatsScreen.Overview },
@@ -298,13 +295,11 @@ private sealed interface StatsScreen {
 @Composable
 private fun StatsTab(
     screen: StatsScreen,
-    period: Period,
     expenseSum: Double?,
     incomeSum: Double?,
     expenseTotals: List<com.example.autoledger.data.CategoryTotal>,
     incomeTotals: List<com.example.autoledger.data.CategoryTotal>,
     vm: LedgerViewModel,
-    onPeriodChange: (Period) -> Unit,
     onCategoryClick: (String) -> Unit,
     onDayClick: (LocalDate) -> Unit,
     onBack: () -> Unit,
@@ -314,17 +309,15 @@ private fun StatsTab(
 ) {
     when (screen) {
         StatsScreen.Overview -> OverviewStats(
-            period = period,
             expenseSum = expenseSum,
             incomeSum = incomeSum,
             expenseTotals = expenseTotals,
-            onPeriodChange = onPeriodChange,
             vm = vm,
             onCategoryClick = onCategoryClick,
             onDayClick = onDayClick,
         )
         is StatsScreen.CategoryEntries -> {
-            val list by remember(screen.category, period) { vm.entriesByCategory(screen.category, 0) }
+            val list by remember(screen.category) { vm.entriesByCategory(screen.category, 0) }
                 .collectAsStateWithLifecycle(initialValue = emptyList())
             CategoryEntriesScreen(
                 category = screen.category,
@@ -356,12 +349,10 @@ private fun StatsTab(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OverviewStats(
-    period: Period,
     expenseSum: Double?,
     incomeSum: Double?,
     expenseTotals: List<com.example.autoledger.data.CategoryTotal>,
     vm: LedgerViewModel,
-    onPeriodChange: (Period) -> Unit,
     onCategoryClick: (String) -> Unit,
     onDayClick: (LocalDate) -> Unit,
 ) {
@@ -369,39 +360,20 @@ private fun OverviewStats(
     val income = incomeSum ?: 0.0
     val balance = income - expense
 
-    // 本月每日净结余 = 收入 − 支出（c/日历大字显示）
-    // 日历所选月份（默认本月），翻月时改变，热力与钻取联动
-    var selectedMonth by remember { mutableStateOf(YearMonth.now()) }
+    // 整页统一日期源：日历所选月份（默认本月），翻月时汇总/分类/热力全部联动
+    val selectedMonth by vm.selectedMonth.collectAsStateWithLifecycle()
     val dailyNet by vm.dailyNetForMonth(selectedMonth).collectAsStateWithLifecycle(initialValue = emptyMap())
 
     // 模块标题随机配色（每次进入重组固定一组，排除红/黄）
     val titleColors = remember { TITLE_PALETTE.shuffled() }
+    val monthLabel = "${selectedMonth.year}年${selectedMonth.monthValue}月"
 
     LazyColumn(Modifier.fillMaxSize()) {
-        // a + b：本周期收支总览（顶部 chip 是 b 时间维度，下方是 a 收支行）
+        // a + b：所选月份收支总览
         item {
             Card(Modifier.fillMaxWidth().padding(8.dp)) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("收支统计", style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp), color = titleColors[0])
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Period.entries.forEach { p ->
-                            FilterChip(
-                                selected = period == p,
-                                onClick = { onPeriodChange(p) },
-                                label = {
-                                    Text(
-                                        when (p) {
-                                            Period.TODAY -> "今天"
-                                            Period.WEEK -> "本周"
-                                            Period.MONTH -> "本月"
-                                            Period.YEAR -> "本年"
-                                        },
-                                    )
-                                },
-                            )
-                        }
-                    }
+                    Text("${monthLabel}收支", style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp), color = titleColors[0])
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("支出", style = MaterialTheme.typography.bodyMedium)
@@ -428,24 +400,24 @@ private fun OverviewStats(
             }
         }
 
-        // c：本月每日收支统计图（日历热力图）
+        // c：所选月份每日收支统计图（日历热力图）
         item {
             CalendarHeatmap(
                 yearMonth = selectedMonth,
                 dailyNet = dailyNet,
                 onDayClick = onDayClick,
-                onPrevMonth = { selectedMonth = selectedMonth.minusMonths(1) },
-                onNextMonth = { selectedMonth = selectedMonth.plusMonths(1) },
-                onToday = { selectedMonth = YearMonth.now() },
+                onPrevMonth = { vm.selectedMonth.value = selectedMonth.minusMonths(1) },
+                onNextMonth = { vm.selectedMonth.value = selectedMonth.plusMonths(1) },
+                onToday = { vm.selectedMonth.value = YearMonth.now() },
             )
         }
 
-        // d：本周期支出分类（3 层钻取的一级列表）
+        // d：所选月份支出分类（3 层钻取的一级列表）
         item {
             Card(Modifier.fillMaxWidth().padding(8.dp)) {
                 Column(Modifier.padding(12.dp)) {
                     Text(
-                        "支出分类",
+                        "${monthLabel}支出分类",
                         style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                         color = titleColors[2],
                     )
@@ -457,7 +429,7 @@ private fun OverviewStats(
                     Spacer(Modifier.height(8.dp))
                     if (expenseTotals.isEmpty()) {
                         Text(
-                            "本周期暂无支出",
+                            "${monthLabel}暂无支出",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
