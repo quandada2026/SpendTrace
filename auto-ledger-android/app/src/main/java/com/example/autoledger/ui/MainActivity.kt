@@ -60,6 +60,10 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -599,13 +603,33 @@ private fun DayEntriesScreen(
     onDelete: (LedgerEntry) -> Unit,
     onAdd: (LocalDate) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize()) {
+    val density = LocalDensity.current
+    val backThresholdPx = with(density) { 80.dp.toPx() }
+    var accumulatedDx by remember { mutableStateOf(0f) }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (accumulatedDx > backThresholdPx) onBack()
+                        accumulatedDx = 0f
+                    },
+                    onDragCancel = { accumulatedDx = 0f },
+                ) { _, dragAmount -> accumulatedDx += dragAmount }
+            },
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回（右滑屏幕也可返回）",
+                    modifier = Modifier.size(30.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
             Column(Modifier.weight(1f)) {
                 Text(date.toString(), style = MaterialTheme.typography.titleMedium)
