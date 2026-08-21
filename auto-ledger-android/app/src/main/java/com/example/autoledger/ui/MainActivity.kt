@@ -46,7 +46,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -762,26 +761,7 @@ private fun ManualEntryDialog(
     var merchant by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var selectedDate by remember { mutableStateOf(initialDate) }
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
-    )
     var showDatePicker by remember { mutableStateOf(false) }
-    if (showDatePicker) {
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                Button(onClick = {
-                    datePickerState.selectedDateMillis?.let { millis ->
-                        selectedDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
-                    }
-                    showDatePicker = false
-                }) { Text("确定") }
-            },
-            dismissButton = { Button(onClick = { showDatePicker = false }) { Text("取消") } },
-        ) {
-            DatePicker(state = datePickerState)
-        }
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -800,7 +780,10 @@ private fun ManualEntryDialog(
         dismissButton = { Button(onClick = onDismiss) { Text("取消") } },
         title = { Text("手动记账") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 TabRow(selectedTabIndex = direction) {
                     Tab(selected = direction == 0, onClick = { direction = 0 }, text = { Text("支出") })
                     Tab(selected = direction == 1, onClick = { direction = 1 }, text = { Text("收入") })
@@ -819,6 +802,23 @@ private fun ManualEntryDialog(
                     trailingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true },
                 )
+                if (showDatePicker) {
+                    // 内联展开，避免在 AlertDialog 里再套 Dialog（dialog-in-dialog 触摸被拦截）
+                    val pickerState = rememberDatePickerState(
+                        initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                    )
+                    DatePicker(state = pickerState, showModeToggle = false)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { showDatePicker = false }) { Text("取消") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = {
+                            pickerState.selectedDateMillis?.let { millis ->
+                                selectedDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
+                            }
+                            showDatePicker = false
+                        }) { Text("确定") }
+                    }
+                }
                 Text("分类（必填）", style = MaterialTheme.typography.labelMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val options = if (direction == 0) CATEGORY_OPTIONS else INCOME_OPTIONS
@@ -957,10 +957,8 @@ private fun ReviewSheet(
             }
     }
     var selectedDate by remember(draft.id) { mutableStateOf(ocrDate ?: draft.contextDate ?: LocalDate.now()) }
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
-    )
-    var showDatePicker by remember { mutableStateOf(false) }
+    // 日期选择改为「内联展开」，不在 AlertDialog 里再套 Dialog（dialog-in-dialog 触摸被拦截，点不动是已知坑）
+    var showDatePicker by remember(draft.id) { mutableStateOf(false) }
     // -1=未知（识别没把握，强制人工选 支出/收入）
     var direction by remember(draft.id) {
         mutableStateOf(
@@ -1087,18 +1085,21 @@ private fun ReviewSheet(
                     Text("（点击修改）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (showDatePicker) {
-                    DatePickerDialog(
-                        onDismissRequest = { showDatePicker = false },
-                        confirmButton = {
-                            Button(onClick = {
-                                datePickerState.selectedDateMillis?.let { millis ->
-                                    selectedDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
-                                }
-                                showDatePicker = false
-                            }) { Text("确定") }
-                        },
-                        dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("取消") } },
-                    ) { DatePicker(datePickerState) }
+                    // 每次展开用当前 selectedDate 新建 state（避免 remember 复用旧选择导致改了没反应）
+                    val pickerState = rememberDatePickerState(
+                        initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                    )
+                    DatePicker(state = pickerState, showModeToggle = false)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { showDatePicker = false }) { Text("取消") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = {
+                            pickerState.selectedDateMillis?.let { millis ->
+                                selectedDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
+                            }
+                            showDatePicker = false
+                        }) { Text("确定") }
+                    }
                 }
                 Text("分类（可选，留空自动归类）", style = MaterialTheme.typography.labelMedium)
                 val catOptions = if (direction == 1) INCOME_OPTIONS else CATEGORY_OPTIONS
