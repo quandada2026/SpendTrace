@@ -41,6 +41,14 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
 
     private val dao: LedgerDao = (application as AutoLedgerApplication).database.dao()
 
+    init {
+        // P1：初始化复核草稿持久化并恢复上次未确认的草稿（进程被杀不丢单）
+        viewModelScope.launch(Dispatchers.IO) {
+            ReviewBus.init((getApplication<AutoLedgerApplication>()).database.reviewDraftDao())
+            ReviewBus.loadFromDb()
+        }
+    }
+
     val entries: StateFlow<List<LedgerEntry>> = dao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -177,8 +185,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
 
     /** 用户确认复核草稿 → 写库。先出队（防重复点击/快速二次上传残留），再异步 commit。 */
     fun commitReview(draft: ReviewDraft) {
-        ReviewBus.remove(draft.id)
         viewModelScope.launch(Dispatchers.IO) {
+            // 先出队（含删库），防重复点击/快速二次上传残留
+            ReviewBus.remove(draft.id)
             val pipeline = LedgerPipeline(dao, OcrEngineProvider.getEngine(getApplication()))
             val entry = pipeline.commit(draft)
             _processMessage.value = if (entry != null) {
@@ -189,7 +198,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** 用户丢弃草稿：删临时图并从队列移除。 */
+    /** 用户丢弃草稿：删临时图并从队列移除（含删库）。 */
     fun discardReview(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
             ReviewBus.peek(id)?.imagePath?.let { File(it).delete() }

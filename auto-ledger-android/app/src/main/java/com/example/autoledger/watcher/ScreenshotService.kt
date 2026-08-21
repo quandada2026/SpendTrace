@@ -41,6 +41,8 @@ class ScreenshotService : Service() {
         startForeground(NOTIF_ID, buildWatchNotification())
 
         val app = application as AutoLedgerApplication
+        // P1：先初始化草稿持久化（Service 可能先于 UI 启动），offer 时落库不丢单
+        ReviewBus.init(app.database.reviewDraftDao())
         pipeline = LedgerPipeline(app.database.dao(), OcrEngineProvider.getEngine(this))
         watcher = ScreenshotWatcher(this) { uri -> handleScreenshot(uri) }
         watcher.start()
