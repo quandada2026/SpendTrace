@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -33,8 +34,13 @@ class LedgerPipeline(
     private val engine: OcrEngine,
 ) {
 
-    /** 分析：产生复核草稿，不写库。 */
-    suspend fun analyzeUri(context: Context, uri: Uri, source: String = "manual"): ReviewDraft =
+    /** 分析：产生复核草稿，不写库。presetDate 为上传时所处的"浏览日期"（点进某天上传时传入）。 */
+    suspend fun analyzeUri(
+        context: Context,
+        uri: Uri,
+        source: String = "manual",
+        presetDate: LocalDate? = null,
+    ): ReviewDraft =
         withContext(Dispatchers.IO) {
             try {
                 val bitmap = loadBitmap(context, uri)
@@ -47,16 +53,18 @@ class LedgerPipeline(
                         success = false,
                         imagePath = null,
                         source = source,
+                        contextDate = presetDate,
                         warningMsg = "未识别到支付金额，请重新截图或手动记账",
                     )
                 } else {
-                    parsed.copy(imagePath = imgPath, source = source, success = true)
+                    parsed.copy(imagePath = imgPath, source = source, success = true, contextDate = presetDate)
                 }
             } catch (e: Exception) {
                 ReviewDraft(
                     success = false,
                     warningMsg = "图片识别失败：${e.message ?: e.javaClass.simpleName}",
                     source = source,
+                    contextDate = presetDate,
                 )
             }
         }

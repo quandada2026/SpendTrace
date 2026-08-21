@@ -1,6 +1,7 @@
 package com.example.autoledger
 
 import android.graphics.Rect
+import java.time.LocalDate
 
 /** OCR 单块文字（与核心引擎 OcrBlock 对应）。 */
 data class OcrBlock(
@@ -48,6 +49,8 @@ data class ReviewDraft(
     val category: String? = null,
     val warningMsg: String? = null,
     val source: String = "manual",
+    /** 上传时所处的"浏览日期"上下文：在统计页点进某天后上传，默认归到该天；OCR 识别到日期时优先用 OCR 日期。 */
+    val contextDate: LocalDate? = null,
 )
 
 /** 平台常量（与核心引擎保持一致）。 */

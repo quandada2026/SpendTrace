@@ -182,10 +182,10 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /** 手动上传截图：只做分析，草稿入 ReviewBus 等待用户复核，不直接入库。 */
-    fun processManualUri(uri: Uri) {
+    fun processManualUri(uri: Uri, presetDate: LocalDate? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val pipeline = LedgerPipeline(dao, OcrEngineProvider.getEngine(getApplication()))
-            val draft = pipeline.analyzeUri(getApplication(), uri, "manual")
+            val draft = pipeline.analyzeUri(getApplication(), uri, "manual", presetDate)
             ReviewBus.offer(draft)
         }
     }

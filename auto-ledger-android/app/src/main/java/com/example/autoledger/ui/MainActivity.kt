@@ -173,9 +173,10 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
     }
 
     // 手动上传（支持一次多选多张截图；逐张分析后入复核队列，用户依次核对）
+    var pendingUploadDate by remember { mutableStateOf<LocalDate?>(null) }
     val pickLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetMultipleContents(),
-    ) { uris: List<Uri>? -> uris?.forEach { vm.processManualUri(it) } }
+    ) { uris: List<Uri>? -> uris?.forEach { vm.processManualUri(it, pendingUploadDate) } }
 
     val watchIntent = remember { Intent(context, ScreenshotService::class.java) }
 
@@ -198,7 +199,10 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
                     }) {
                         Text(if (watching) "停止监听" else "开启监听")
                     }
-                    IconButton(onClick = { pickLauncher.launch("image/*") }) {
+                    IconButton(onClick = {
+                        pendingUploadDate = (statsScreen as? StatsScreen.DayEntries)?.date
+                        pickLauncher.launch("image/*")
+                    }) {
                         Icon(Icons.Filled.Upload, contentDescription = "手动上传截图")
                     }
                 },
@@ -969,7 +973,22 @@ private fun ReviewSheet(
         mutableStateOf(draft.suggestMoney?.let { "%.2f".format(kotlin.math.abs(it)) } ?: "")
     }
     var merchant by remember(draft.id) { mutableStateOf(draft.suggestMerchant ?: "") }
-    var time by remember(draft.id) { mutableStateOf(draft.tradeTime ?: "") }
+    // 交易日期：OCR 日期 > 浏览日期上下文(contextDate) > 今天；时刻保留 OCR 识别到的，否则取当前时刻
+    val ocrDate = remember(draft.id) {
+        draft.tradeTime?.let { runCatching { LocalDate.parse(it.substring(0, 10)) }.getOrNull() }
+    }
+    val timeSuffix = remember(draft.id) {
+        draft.tradeTime?.let { if (it.length >= 19) it.substring(11, 19) else null }
+            ?: run {
+                val n = java.time.LocalDateTime.now()
+                "%02d:%02d:%02d".format(n.hour, n.minute, n.second)
+            }
+    }
+    var selectedDate by remember(draft.id) { mutableStateOf(ocrDate ?: draft.contextDate ?: LocalDate.now()) }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+    )
+    var showDatePicker by remember { mutableStateOf(false) }
     // -1=未知（识别没把握，强制人工选 支出/收入）
     var direction by remember(draft.id) {
         mutableStateOf(
@@ -998,7 +1017,9 @@ private fun ReviewSheet(
                     val edited = draft.copy(
                         suggestMoney = amountText.toDoubleOrNull(),
                         suggestMerchant = merchant.ifBlank { null },
-                        tradeTime = time.ifBlank { null },
+                        tradeTime = "%04d-%02d-%02d %s".format(
+                            selectedDate.year, selectedDate.monthValue, selectedDate.dayOfMonth, timeSuffix,
+                        ),
                         tradeType = when (direction) {
                             1 -> TradeType.INCOME
                             0 -> TradeType.EXPENSE
@@ -1080,11 +1101,33 @@ private fun ReviewSheet(
                 if (!dirValid) {
                     Text("请选择支出或收入", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
-                OutlinedTextField(
-                    time, { time = it },
-                    label = { Text("时间 YYYY-MM-DD HH:MM:SS（可选）") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                // 交易日期（可点选修改：OCR 日期 > 浏览日期 > 今天）
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("交易日期", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = { showDatePicker = true }) {
+                        Text(selectedDate.toString())
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text("（点击修改）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (showDatePicker) {
+                    DatePickerDialog(
+                        onDismissRequest = { showDatePicker = false },
+                        confirmButton = {
+                            Button(onClick = {
+                                datePickerState.selectedDateMillis?.let { millis ->
+                                    selectedDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
+                                }
+                                showDatePicker = false
+                            }) { Text("确定") }
+                        },
+                        dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("取消") } },
+                    ) { DatePicker(datePickerState) }
+                }
                 Text("分类（可选，留空自动归类）", style = MaterialTheme.typography.labelMedium)
                 val catOptions = if (direction == 1) INCOME_OPTIONS else CATEGORY_OPTIONS
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
