@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -114,6 +115,33 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             list.associate { LocalDate.parse(it.date) to it.total }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** 指定年月的每日支出合计（用于日历翻月热力图，与 period 无关）。 */
+    fun dailyExpenseForMonth(ym: YearMonth): StateFlow<Map<LocalDate, Double>> {
+        val (s, e) = monthRange(ym)
+        return dao.dailyExpenseTotals(s, e).map { list ->
+            list.associate { LocalDate.parse(it.date) to it.total }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    }
+
+    /** 指定年月的每日收入合计。 */
+    fun dailyIncomeForMonth(ym: YearMonth): StateFlow<Map<LocalDate, Double>> {
+        val (s, e) = monthRange(ym)
+        return dao.dailyIncomeTotals(s, e).map { list ->
+            list.associate { LocalDate.parse(it.date) to it.total }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    }
+
+    /** 指定年月的每日净结余（收入 − 支出），供日历热力图按所选月份展示。 */
+    fun dailyNetForMonth(ym: YearMonth): StateFlow<Map<LocalDate, Double>> =
+        dailyExpenseForMonth(ym).combine(dailyIncomeForMonth(ym)) { exp, inc ->
+            val keys = exp.keys + inc.keys
+            keys.associateWith { (inc[it] ?: 0.0) - (exp[it] ?: 0.0) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** 某年月的 [start, end) 时间范围字符串（用于按月聚合查询）。 */
+    private fun monthRange(ym: YearMonth): Pair<String, String> =
+        ym.atDay(1).toString() to ym.atEndOfMonth().plusDays(1).toString()
 
     /** d 三级钻取：当前 period 内该分类账目列表。 */
     fun entriesByCategory(category: String, direction: Int): Flow<List<LedgerEntry>> =

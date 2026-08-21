@@ -133,8 +133,7 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
     val expenseTotals by vm.expenseTotals.collectAsStateWithLifecycle()
     val incomeSum by vm.incomeSum.collectAsStateWithLifecycle()
     val incomeTotals by vm.incomeTotals.collectAsStateWithLifecycle()
-    val dailyExpenseMap by vm.dailyExpenseMap.collectAsStateWithLifecycle()
-    val dailyIncomeMap by vm.dailyIncomeMap.collectAsStateWithLifecycle()
+    // 日历热力图改为按所选月份按需查询（见 OverviewStats 的 selectedMonth + vm.dailyNetForMonth）
     var showManual by remember { mutableStateOf(false) }
     var manualDate by remember { mutableStateOf<LocalDate?>(null) }
 
@@ -228,8 +227,6 @@ fun MainScreen(vm: LedgerViewModel = viewModel()) {
                     incomeSum = incomeSum,
                     expenseTotals = expenseTotals,
                     incomeTotals = incomeTotals,
-                    dailyExpenseMap = dailyExpenseMap,
-                    dailyIncomeMap = dailyIncomeMap,
                     vm = vm,
                     onPeriodChange = vm::setPeriod,
                     onCategoryClick = { statsScreen = StatsScreen.CategoryEntries(it) },
@@ -302,8 +299,6 @@ private fun StatsTab(
     incomeSum: Double?,
     expenseTotals: List<com.example.autoledger.data.CategoryTotal>,
     incomeTotals: List<com.example.autoledger.data.CategoryTotal>,
-    dailyExpenseMap: Map<LocalDate, Double>,
-    dailyIncomeMap: Map<LocalDate, Double>,
     vm: LedgerViewModel,
     onPeriodChange: (Period) -> Unit,
     onCategoryClick: (String) -> Unit,
@@ -319,9 +314,8 @@ private fun StatsTab(
             expenseSum = expenseSum,
             incomeSum = incomeSum,
             expenseTotals = expenseTotals,
-            dailyExpenseMap = dailyExpenseMap,
-            dailyIncomeMap = dailyIncomeMap,
             onPeriodChange = onPeriodChange,
+            vm = vm,
             onCategoryClick = onCategoryClick,
             onDayClick = onDayClick,
         )
@@ -362,8 +356,7 @@ private fun OverviewStats(
     expenseSum: Double?,
     incomeSum: Double?,
     expenseTotals: List<com.example.autoledger.data.CategoryTotal>,
-    dailyExpenseMap: Map<LocalDate, Double>,
-    dailyIncomeMap: Map<LocalDate, Double>,
+    vm: LedgerViewModel,
     onPeriodChange: (Period) -> Unit,
     onCategoryClick: (String) -> Unit,
     onDayClick: (LocalDate) -> Unit,
@@ -373,10 +366,9 @@ private fun OverviewStats(
     val balance = income - expense
 
     // 本月每日净结余 = 收入 − 支出（c/日历大字显示）
-    val dailyNet: Map<LocalDate, Double> = run {
-        val keys = dailyExpenseMap.keys + dailyIncomeMap.keys
-        keys.associateWith { (dailyIncomeMap[it] ?: 0.0) - (dailyExpenseMap[it] ?: 0.0) }
-    }
+    // 日历所选月份（默认本月），翻月时改变，热力与钻取联动
+    var selectedMonth by remember { mutableStateOf(YearMonth.now()) }
+    val dailyNet by vm.dailyNetForMonth(selectedMonth).collectAsStateWithLifecycle(initialValue = emptyMap())
 
     // 模块标题随机配色（每次进入重组固定一组，排除红/黄）
     val titleColors = remember { TITLE_PALETTE.shuffled() }
@@ -435,9 +427,12 @@ private fun OverviewStats(
         // c：本月每日收支统计图（日历热力图）
         item {
             CalendarHeatmap(
-                yearMonth = YearMonth.now(),
+                yearMonth = selectedMonth,
                 dailyNet = dailyNet,
                 onDayClick = onDayClick,
+                onPrevMonth = { selectedMonth = selectedMonth.minusMonths(1) },
+                onNextMonth = { selectedMonth = selectedMonth.plusMonths(1) },
+                onToday = { selectedMonth = YearMonth.now() },
             )
         }
 
@@ -503,6 +498,9 @@ private fun CalendarHeatmap(
     yearMonth: YearMonth,
     dailyNet: Map<LocalDate, Double>,
     onDayClick: (LocalDate) -> Unit,
+    onPrevMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onToday: () -> Unit,
 ) {
     val firstDay = yearMonth.atDay(1)
     val daysInMonth = yearMonth.lengthOfMonth()
@@ -521,9 +519,21 @@ private fun CalendarHeatmap(
 
     Card(Modifier.fillMaxWidth().padding(8.dp)) {
         Column(Modifier.padding(12.dp)) {
+            Text("每日收支（净结余）", style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp), color = titleColor)
+            Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("本月每日支出", style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp), color = titleColor)
-                Text(yearMonth.toString(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = onPrevMonth) {
+                    Text("‹ 上月", style = MaterialTheme.typography.labelMedium)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(yearMonth.toString(), style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp))
+                    TextButton(onClick = onToday) {
+                        Text("回到本月", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                TextButton(onClick = onNextMonth) {
+                    Text("下月 ›", style = MaterialTheme.typography.labelMedium)
+                }
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth()) {
